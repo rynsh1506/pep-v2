@@ -1,7 +1,5 @@
 import { Elysia, t } from 'elysia';
-import { db } from '../db';
-import { approvalRequests, candidates, users } from '../db/schema';
-import { eq, and, sql, desc } from 'drizzle-orm';
+import { connectionCadeb } from '../db';
 import { jwt } from '@elysiajs/jwt';
 
 export const approvalRoutes = new Elysia({ prefix: '/approvals' })
@@ -33,45 +31,24 @@ export const approvalRoutes = new Elysia({ prefix: '/approvals' })
   })
   .get('/', async ({ user }) => {
     try {
-      let conditions = [];
+      let queryStr = 'SELECT id, candidate_id AS candidateId, type, old_data AS oldData, new_data AS newData, requester_id AS requesterId, l2_status AS l2Status, l2_notes AS l2Notes, l3_status AS l3Status, l3_notes AS l3Notes, created_at AS createdAt FROM approval_requests';
+      let conditions: string[] = ["final_status = 'PENDING'"];
+      let values: any[] = [];
 
-      // Final status must be PENDING
-      conditions.push(eq(approvalRequests.finalStatus, 'PENDING'));
-
-      // If user is Supervisor (Level 2), show where l2_status is PENDING
       if (user.level === 2) {
-        conditions.push(eq(approvalRequests.l2Status, 'PENDING'));
+        conditions.push("l2_status = 'PENDING'");
       }
-      
-      // If user is Manager (Level 3), show where l2_status is APPROVED and l3_status is PENDING
       if (user.level === 3) {
-        conditions.push(
-          and(
-            eq(approvalRequests.l2Status, 'APPROVED'),
-            eq(approvalRequests.l3Status, 'PENDING')
-          )
-        );
+        conditions.push("l2_status = 'APPROVED' AND l3_status = 'PENDING'");
       }
 
-      // If Level 4 (Admin), show all pending
-      const results = await db.select({
-        id: approvalRequests.id,
-        candidateId: approvalRequests.candidateId,
-        type: approvalRequests.type,
-        oldData: approvalRequests.oldData,
-        newData: approvalRequests.newData,
-        requesterId: approvalRequests.requesterId,
-        l2Status: approvalRequests.l2Status,
-        l2Notes: approvalRequests.l2Notes,
-        l3Status: approvalRequests.l3Status,
-        l3Notes: approvalRequests.l3Notes,
-        createdAt: approvalRequests.createdAt,
-      })
-      .from(approvalRequests)
-      .where(and(...conditions))
-      .orderBy(desc(approvalRequests.createdAt));
+      if (conditions.length > 0) {
+        queryStr += ' WHERE ' + conditions.join(' AND ');
+      }
+      queryStr += ' ORDER BY created_at DESC';
 
-      return { success: true, data: results };
+      const [rows] = await connectionCadeb.execute(queryStr, values);
+      return { success: true, data: rows };
     } catch (e: any) {
       return { success: false, error: e.message };
     }
@@ -81,7 +58,11 @@ export const approvalRoutes = new Elysia({ prefix: '/approvals' })
     const { action, notes } = body; // action: 'APPROVE' or 'REJECT'
     
     try {
-      const existing = await db.select().from(approvalRequests).where(eq(approvalRequests.id, id)).limit(1);
+      const [rows] = await connectionCadeb.execute(
+        'SELECT id, candidate_id AS candidateId, type, old_data AS oldData, new_data AS newData, requester_id AS requesterId, l2_status AS l2Status, l2_notes AS l2Notes, l3_status AS l3Status, l3_notes AS l3Notes, final_status AS finalStatus, created_at AS createdAt FROM approval_requests WHERE id = ? LIMIT 1',
+        [id]
+      );
+      const existing = rows as any[];
       if (existing.length === 0) {
         set.status = 404;
         return { success: false, error: 'Permintaan approval tidak ditemukan.' };
@@ -91,54 +72,51 @@ export const approvalRoutes = new Elysia({ prefix: '/approvals' })
 
       if (user.level === 2) {
         if (action === 'APPROVE') {
-          await db.update(approvalRequests).set({
-            l2Status: 'APPROVED',
-            l2ApproverId: user.id as number,
-            l2Notes: notes || '',
-          }).where(eq(approvalRequests.id, id));
+          await connectionCadeb.execute(
+            'UPDATE approval_requests SET l2_status = ?, l2_approver_id = ?, l2_notes = ? WHERE id = ?',
+            ['APPROVED', user.id, notes || '', id]
+          );
         } else {
-          await db.update(approvalRequests).set({
-            l2Status: 'REJECTED',
-            finalStatus: 'REJECTED',
-            l2ApproverId: user.id as number,
-            l2Notes: notes || '',
-          }).where(eq(approvalRequests.id, id));
+          await connectionCadeb.execute(
+            'UPDATE approval_requests SET l2_status = ?, final_status = ?, l2_approver_id = ?, l2_notes = ? WHERE id = ?',
+            ['REJECTED', 'REJECTED', user.id, notes || '', id]
+          );
         }
       } else if (user.level === 3 || user.level === 4) {
         if (action === 'APPROVE') {
           // Update status
-          await db.update(approvalRequests).set({
-            l3Status: 'APPROVED',
-            finalStatus: 'COMPLETED',
-            l3ApproverId: user.id as number,
-            l3Notes: notes || '',
-          }).where(eq(approvalRequests.id, id));
+          await connectionCadeb.execute(
+            'UPDATE approval_requests SET l3_status = ?, final_status = ?, l3_approver_id = ?, l3_notes = ? WHERE id = ?',
+            ['APPROVED', 'COMPLETED', user.id, notes || '', id]
+          );
 
           // Apply changes to database!
           const targetId = req.candidateId;
           if (targetId) {
             if (req.type === 'DELETE') {
-              await db.delete(candidates).where(eq(candidates.id, targetId));
+              await connectionCadeb.execute('DELETE FROM candidates WHERE id = ?', [targetId]);
             } else if (req.type === 'EDIT' && req.newData) {
               const updatedData = JSON.parse(req.newData);
-              await db.update(candidates).set({
-                namaCadeb: updatedData.namaCadeb,
-                noIdentitas: updatedData.noIdentitas,
-                namaPasangan: updatedData.namaPasangan || '',
-                noIdentitasPasangan: updatedData.noIdentitasPasangan || '',
-                keteranganPep: updatedData.keteranganPep,
-                goLive: updatedData.goLive,
-                kategori: updatedData.kategori || 'Cadeb',
-              }).where(eq(candidates.id, targetId));
+              await connectionCadeb.execute(
+                'UPDATE candidates SET nama_cadeb = ?, no_identitas = ?, nama_pasangan = ?, no_identitas_pasangan = ?, keterangan_pep = ?, go_live = ?, kategori = ? WHERE id = ?',
+                [
+                  updatedData.namaCadeb,
+                  updatedData.noIdentitas,
+                  updatedData.namaPasangan || '',
+                  updatedData.noIdentitasPasangan || '',
+                  updatedData.keteranganPep,
+                  updatedData.goLive,
+                  updatedData.kategori || 'Cadeb',
+                  targetId
+                ]
+              );
             }
           }
         } else {
-          await db.update(approvalRequests).set({
-            l3Status: 'REJECTED',
-            finalStatus: 'REJECTED',
-            l3ApproverId: user.id as number,
-            l3Notes: notes || '',
-          }).where(eq(approvalRequests.id, id));
+          await connectionCadeb.execute(
+            'UPDATE approval_requests SET l3_status = ?, final_status = ?, l3_approver_id = ?, l3_notes = ? WHERE id = ?',
+            ['REJECTED', 'REJECTED', user.id, notes || '', id]
+          );
         }
       }
 

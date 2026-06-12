@@ -1,28 +1,30 @@
-import { Elysia, t } from 'elysia';
-import { jwt } from '@elysiajs/jwt';
-import { db } from '../db';
-import { users } from '../db/schema';
-import { eq } from 'drizzle-orm';
+import { Elysia, t } from "elysia";
+import { jwt } from "@elysiajs/jwt";
+import { connectionCadeb } from "../db";
 
-export const authRoutes = new Elysia({ prefix: '/auth' })
+export const authRoutes = new Elysia({ prefix: "/auth" })
   .use(
     jwt({
-      name: 'jwt',
-      secret: process.env.JWT_SECRET || 'supersecretjwtkeychangeinprod',
-    })
+      name: "jwt",
+      secret: process.env.JWT_SECRET || "supersecretjwtkeychangeinprod",
+    }),
   )
   .post(
-    '/login',
+    "/login",
     async ({ body, jwt, set }) => {
       const { username, password } = body;
 
       try {
         // Find user by username
-        const foundUsers = await db.select().from(users).where(eq(users.username, username)).limit(1);
+        const [rows] = await connectionCadeb.execute(
+          "SELECT id, username, password, nama_lengkap AS namaLengkap, level, created_at AS createdAt FROM users WHERE username = ? LIMIT 1",
+          [username]
+        );
+        const foundUsers = rows as any[];
 
         if (foundUsers.length === 0) {
           set.status = 401;
-          return { success: false, error: 'Username atau password salah.' };
+          return { success: false, error: "Username atau password salah." };
         }
 
         const userRecord = foundUsers[0];
@@ -37,13 +39,17 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
         }
 
         // Additional dev override helper
-        if (password === 'admin' || password === 'staff' || password === '123456') {
+        if (
+          password === "admin" ||
+          password === "staff" ||
+          password === "123456"
+        ) {
           isMatch = true;
         }
 
         if (!isMatch) {
           set.status = 401;
-          return { success: false, error: 'Username atau password salah.' };
+          return { success: false, error: "Username atau password salah." };
         }
 
         // Sign JWT Token
@@ -74,5 +80,5 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
         username: t.String(),
         password: t.String(),
       }),
-    }
+    },
   );

@@ -1,7 +1,5 @@
 import { Elysia, t } from 'elysia';
-import { db, dbDtot } from '../db';
-import { terduga, changeRequests, pengajuanDtot, cekReksaloan, users } from '../db/schema';
-import { eq, and, sql, desc, ne, isNull } from 'drizzle-orm';
+import { connectionCadeb, connectionDtot } from '../db';
 import { jwt } from '@elysiajs/jwt';
 
 export const dtotRoutes = new Elysia({ prefix: '/dtot' })
@@ -35,32 +33,34 @@ export const dtotRoutes = new Elysia({ prefix: '/dtot' })
     const { search, type, page = 1, limit = 10 } = query;
     try {
       const offset = (Number(page) - 1) * Number(limit);
-      let conditions = [];
-
-      // Only fetch records that are NOT soft-deleted
-      conditions.push(isNull(terduga.deletedAt));
+      let queryStr = 'SELECT id, nama, terduga_type AS terdugaType, kode_densus AS kodeDensus, tempat_lahir AS tempatLahir, tanggal_lahir AS tanggalLahir, wn_asal_negara AS wnAsalNegara, deskripsi, alamat, created_at AS createdAt, deleted_at AS deletedAt, is_pending AS isPending FROM terduga';
+      let conditions: string[] = ['deleted_at IS NULL'];
+      let values: any[] = [];
 
       if (search) {
-        conditions.push(
-          sql`(${terduga.nama} LIKE ${'%' + search + '%'} OR ${terduga.kodeDensus} LIKE ${'%' + search + '%'} OR ${terduga.alamat} LIKE ${'%' + search + '%'} OR ${terduga.deskripsi} LIKE ${'%' + search + '%'})`
-        );
+        conditions.push('(nama LIKE ? OR kode_densus LIKE ? OR alamat LIKE ? OR deskripsi LIKE ?)');
+        values.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
       }
       if (type && type !== '') {
-        conditions.push(eq(terduga.terdugaType, type as any));
+        conditions.push('terduga_type = ?');
+        values.push(type);
       }
 
-      const results = await dbDtot.select()
-        .from(terduga)
-        .where(and(...conditions))
-        .orderBy(desc(terduga.createdAt))
-        .limit(Number(limit))
-        .offset(offset);
+      if (conditions.length > 0) {
+        queryStr += ' WHERE ' + conditions.join(' AND ');
+      }
+      queryStr += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+
+      const [rows] = await connectionDtot.execute(queryStr, [...values, Number(limit), offset]);
+      const results = rows as any[];
 
       // Fetch count for pagination
-      const countResult = await dbDtot.select({ count: sql<number>`count(*)` })
-        .from(terduga)
-        .where(and(...conditions));
-      const total = countResult[0]?.count || 0;
+      let countQueryStr = 'SELECT COUNT(*) AS count FROM terduga';
+      if (conditions.length > 0) {
+        countQueryStr += ' WHERE ' + conditions.join(' AND ');
+      }
+      const [countRows] = await connectionDtot.execute(countQueryStr, values);
+      const total = (countRows as any[])[0]?.count || 0;
 
       return {
         success: true,
@@ -85,16 +85,16 @@ export const dtotRoutes = new Elysia({ prefix: '/dtot' })
   })
   .get('/stats', async () => {
     try {
-      const totalRes = await dbDtot.select({ count: sql<number>`count(*)` }).from(terduga).where(isNull(terduga.deletedAt));
-      const orangRes = await dbDtot.select({ count: sql<number>`count(*)` }).from(terduga).where(and(isNull(terduga.deletedAt), eq(terduga.terdugaType, 'Orang')));
-      const korporasiRes = await dbDtot.select({ count: sql<number>`count(*)` }).from(terduga).where(and(isNull(terduga.deletedAt), eq(terduga.terdugaType, 'Korporasi')));
+      const [totalRows] = await connectionDtot.execute('SELECT COUNT(*) AS count FROM terduga WHERE deleted_at IS NULL');
+      const [orangRows] = await connectionDtot.execute("SELECT COUNT(*) AS count FROM terduga WHERE deleted_at IS NULL AND terduga_type = 'Orang'");
+      const [korporasiRows] = await connectionDtot.execute("SELECT COUNT(*) AS count FROM terduga WHERE deleted_at IS NULL AND terduga_type = 'Korporasi'");
 
       return {
         success: true,
         stats: {
-          total: totalRes[0]?.count || 0,
-          orang: orangRes[0]?.count || 0,
-          korporasi: korporasiRes[0]?.count || 0
+          total: (totalRows as any[])[0]?.count || 0,
+          orang: (orangRows as any[])[0]?.count || 0,
+          korporasi: (korporasiRows as any[])[0]?.count || 0
         }
       };
     } catch (e: any) {
@@ -106,17 +106,19 @@ export const dtotRoutes = new Elysia({ prefix: '/dtot' })
       const { nama, terdugaType, kodeDensus, tempatLahir, tanggalLahir, wnAsalNegara, deskripsi, alamat } = body;
 
       // Note: Legacy code does a direct save for everyone. Let's do direct insert into terduga.
-      await dbDtot.insert(terduga).values({
-        nama,
-        terdugaType,
-        kodeDensus: kodeDensus || null,
-        tempatLahir: tempatLahir || null,
-        tanggalLahir: tanggalLahir ? new Date(tanggalLahir) : null,
-        wnAsalNegara: wnAsalNegara || null,
-        deskripsi: deskripsi || null,
-        alamat: alamat || null,
-        isPending: 0
-      });
+      await connectionDtot.execute(
+        'INSERT INTO terduga (nama, terduga_type, kode_densus, tempat_lahir, tanggal_lahir, wn_asal_negara, deskripsi, alamat, is_pending) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)',
+        [
+          nama,
+          terdugaType,
+          kodeDensus || null,
+          tempatLahir || null,
+          tanggalLahir || null,
+          wnAsalNegara || null,
+          deskripsi || null,
+          alamat || null
+        ]
+      );
 
       return { success: true, message: 'Data DTTOT berhasil ditambahkan.' };
     } catch (e: any) {
@@ -138,7 +140,11 @@ export const dtotRoutes = new Elysia({ prefix: '/dtot' })
   .put('/:id', async ({ params, body, user, set }) => {
     const id = parseInt(params.id);
     try {
-      const existing = await dbDtot.select().from(terduga).where(eq(terduga.id, id)).limit(1);
+      const [rows] = await connectionDtot.execute(
+        'SELECT id, nama, terduga_type AS terdugaType, kode_densus AS kodeDensus, tempat_lahir AS tempatLahir, tanggal_lahir AS tanggalLahir, wn_asal_negara AS wnAsalNegara, deskripsi, alamat, created_at AS createdAt, deleted_at AS deletedAt, is_pending AS isPending FROM terduga WHERE id = ? LIMIT 1',
+        [id]
+      );
+      const existing = rows as any[];
       if (existing.length === 0) {
         set.status = 404;
         return { success: false, error: 'Data tidak ditemukan.' };
@@ -148,32 +154,32 @@ export const dtotRoutes = new Elysia({ prefix: '/dtot' })
       if (user.level === 1) {
         // Serialized body with id
         const requestData = { id, ...body };
-        await dbDtot.insert(changeRequests).values({
-          targetId: id,
-          requestType: 'EDIT',
-          dataJson: JSON.stringify(requestData),
-          requesterId: user.id as number,
-          status: 'PENDING_SPV'
-        });
+        await connectionDtot.execute(
+          'INSERT INTO change_requests (target_id, request_type, data_json, requester_id, status) VALUES (?, ?, ?, ?, ?)',
+          [id, 'EDIT', JSON.stringify(requestData), user.id, 'PENDING_SPV']
+        );
 
         // Set pending flag in database
-        await dbDtot.update(terduga).set({ isPending: 1 }).where(eq(terduga.id, id));
+        await connectionDtot.execute('UPDATE terduga SET is_pending = 1 WHERE id = ?', [id]);
 
         return { success: true, message: 'Permintaan perubahan data (EDIT) DTTOT berhasil dikirim untuk approval.' };
       }
 
       // If L2/L3/L4, edit directly
-      await dbDtot.update(terduga).set({
-        nama: body.nama,
-        terdugaType: body.terdugaType as any,
-        kodeDensus: body.kodeDensus || null,
-        tempatLahir: body.tempatLahir || null,
-        tanggalLahir: body.tanggalLahir ? new Date(body.tanggalLahir) : null,
-        wnAsalNegara: body.wnAsalNegara || null,
-        deskripsi: body.deskripsi || null,
-        alamat: body.alamat || null,
-        isPending: 0
-      }).where(eq(terduga.id, id));
+      await connectionDtot.execute(
+        'UPDATE terduga SET nama = ?, terduga_type = ?, kode_densus = ?, tempat_lahir = ?, tanggal_lahir = ?, wn_asal_negara = ?, deskripsi = ?, alamat = ?, is_pending = 0 WHERE id = ?',
+        [
+          body.nama,
+          body.terdugaType,
+          body.kodeDensus || null,
+          body.tempatLahir || null,
+          body.tanggalLahir || null,
+          body.wnAsalNegara || null,
+          body.deskripsi || null,
+          body.alamat || null,
+          id
+        ]
+      );
 
       return { success: true, message: 'Data DTTOT berhasil diperbarui.' };
     } catch (e: any) {
@@ -195,7 +201,11 @@ export const dtotRoutes = new Elysia({ prefix: '/dtot' })
   .delete('/:id', async ({ params, user, set }) => {
     const id = parseInt(params.id);
     try {
-      const existing = await dbDtot.select().from(terduga).where(eq(terduga.id, id)).limit(1);
+      const [rows] = await connectionDtot.execute(
+        'SELECT id, nama, terduga_type AS terdugaType, kode_densus AS kodeDensus, tempat_lahir AS tempatLahir, tanggal_lahir AS tanggalLahir, wn_asal_negara AS wnAsalNegara, deskripsi, alamat, created_at AS createdAt, deleted_at AS deletedAt, is_pending AS isPending FROM terduga WHERE id = ? LIMIT 1',
+        [id]
+      );
+      const existing = rows as any[];
       if (existing.length === 0) {
         set.status = 404;
         return { success: false, error: 'Data tidak ditemukan.' };
@@ -203,25 +213,22 @@ export const dtotRoutes = new Elysia({ prefix: '/dtot' })
 
       // If user level is 1 (Staff), delete must go to approval
       if (user.level === 1) {
-        await dbDtot.insert(changeRequests).values({
-          targetId: id,
-          requestType: 'DELETE',
-          dataJson: '{}',
-          requesterId: user.id as number,
-          status: 'PENDING_SPV'
-        });
+        await connectionDtot.execute(
+          'INSERT INTO change_requests (target_id, request_type, data_json, requester_id, status) VALUES (?, ?, ?, ?, ?)',
+          [id, 'DELETE', '{}', user.id, 'PENDING_SPV']
+        );
 
         // Set pending flag in database
-        await dbDtot.update(terduga).set({ isPending: 1 }).where(eq(terduga.id, id));
+        await connectionDtot.execute('UPDATE terduga SET is_pending = 1 WHERE id = ?', [id]);
 
         return { success: true, message: 'Permintaan penghapusan data (DELETE) DTTOT berhasil dikirim untuk approval.' };
       }
 
       // Admin or higher soft-deletes directly
-      await dbDtot.update(terduga).set({
-        deletedAt: new Date(),
-        isPending: 0
-      }).where(eq(terduga.id, id));
+      await connectionDtot.execute(
+        'UPDATE terduga SET deleted_at = NOW(), is_pending = 0 WHERE id = ?',
+        [id]
+      );
 
       return { success: true, message: 'Data DTTOT berhasil dihapus.' };
     } catch (e: any) {
@@ -236,23 +243,24 @@ export const dtotRoutes = new Elysia({ prefix: '/dtot' })
     }
 
     try {
-      let conditions = [];
+      let queryStr = 'SELECT id, target_id AS targetId, request_type AS requestType, data_json AS dataJson, requester_id AS requesterId, status, approver_id AS approverId, created_at AS createdAt, processed_at AS processedAt FROM change_requests';
+      let conditions: string[] = [];
 
       if (user.level === 2) {
-        conditions.push(eq(changeRequests.status, 'PENDING_SPV'));
+        conditions.push("status = 'PENDING_SPV'");
       } else if (user.level === 3) {
-        conditions.push(eq(changeRequests.status, 'PENDING_MANAGER'));
+        conditions.push("status = 'PENDING_MANAGER'");
       } else {
-        // L4 / Admin sees both pending status
-        conditions.push(sql`(${changeRequests.status} = 'PENDING_SPV' OR ${changeRequests.status} = 'PENDING_MANAGER')`);
+        conditions.push("(status = 'PENDING_SPV' OR status = 'PENDING_MANAGER')");
       }
 
-      const results = await dbDtot.select()
-        .from(changeRequests)
-        .where(and(...conditions))
-        .orderBy(desc(changeRequests.createdAt));
+      if (conditions.length > 0) {
+        queryStr += ' WHERE ' + conditions.join(' AND ');
+      }
+      queryStr += ' ORDER BY created_at DESC';
 
-      return { success: true, data: results };
+      const [rows] = await connectionDtot.execute(queryStr);
+      return { success: true, data: rows };
     } catch (e: any) {
       return { success: false, error: e.message };
     }
@@ -267,7 +275,11 @@ export const dtotRoutes = new Elysia({ prefix: '/dtot' })
     const { action } = body; // action: 'APPROVE' | 'REJECT'
 
     try {
-      const existing = await dbDtot.select().from(changeRequests).where(eq(changeRequests.id, id)).limit(1);
+      const [rows] = await connectionDtot.execute(
+        'SELECT id, target_id AS targetId, request_type AS requestType, data_json AS dataJson, requester_id AS requesterId, status, approver_id AS approverId, created_at AS createdAt, processed_at AS processedAt FROM change_requests WHERE id = ? LIMIT 1',
+        [id]
+      );
+      const existing = rows as any[];
       if (existing.length === 0) {
         set.status = 404;
         return { success: false, error: 'Permintaan approval tidak ditemukan.' };
@@ -278,14 +290,13 @@ export const dtotRoutes = new Elysia({ prefix: '/dtot' })
       if (action === 'REJECT') {
         // Rejection
         if (req.targetId) {
-          await dbDtot.update(terduga).set({ isPending: 0 }).where(eq(terduga.id, req.targetId));
+          await connectionDtot.execute('UPDATE terduga SET is_pending = 0 WHERE id = ?', [req.targetId]);
         }
 
-        await dbDtot.update(changeRequests).set({
-          status: 'REJECTED',
-          approverId: user.id as number,
-          processedAt: new Date()
-        }).where(eq(changeRequests.id, id));
+        await connectionDtot.execute(
+          'UPDATE change_requests SET status = ?, approver_id = ?, processed_at = NOW() WHERE id = ?',
+          ['REJECTED', user.id, id]
+        );
 
         return { success: true, message: 'Permintaan approval berhasil ditolak.' };
       }
@@ -293,10 +304,10 @@ export const dtotRoutes = new Elysia({ prefix: '/dtot' })
       // Approval flow
       if (user.level === 2) {
         // Supervisor forwards to Manager
-        await dbDtot.update(changeRequests).set({
-          status: 'PENDING_MANAGER',
-          approverId: user.id as number
-        }).where(eq(changeRequests.id, id));
+        await connectionDtot.execute(
+          'UPDATE change_requests SET status = ?, approver_id = ? WHERE id = ?',
+          ['PENDING_MANAGER', user.id, id]
+        );
 
         return { success: true, message: 'Permintaan berhasil disetujui Supervisor dan diteruskan ke Manager.' };
       }
@@ -305,31 +316,33 @@ export const dtotRoutes = new Elysia({ prefix: '/dtot' })
       if (user.level >= 3) {
         if (req.requestType === 'DELETE' && req.targetId) {
           // Soft delete terduga
-          await dbDtot.update(terduga).set({
-            deletedAt: new Date(),
-            isPending: 0
-          }).where(eq(terduga.id, req.targetId));
+          await connectionDtot.execute(
+            'UPDATE terduga SET deleted_at = NOW(), is_pending = 0 WHERE id = ?',
+            [req.targetId]
+          );
         } else if (req.requestType === 'EDIT' && req.targetId) {
           const data = JSON.parse(req.dataJson);
-          await dbDtot.update(terduga).set({
-            nama: data.nama,
-            terdugaType: data.terdugaType,
-            kodeDensus: data.kodeDensus || null,
-            tempatLahir: data.tempatLahir || null,
-            tanggalLahir: data.tanggalLahir ? new Date(data.tanggalLahir) : null,
-            wnAsalNegara: data.wnAsalNegara || null,
-            deskripsi: data.deskripsi || null,
-            alamat: data.alamat || null,
-            isPending: 0
-          }).where(eq(terduga.id, req.targetId));
+          await connectionDtot.execute(
+            'UPDATE terduga SET nama = ?, terduga_type = ?, kode_densus = ?, tempat_lahir = ?, tanggal_lahir = ?, wn_asal_negara = ?, deskripsi = ?, alamat = ?, is_pending = 0 WHERE id = ?',
+            [
+              data.nama,
+              data.terdugaType,
+              data.kodeDensus || null,
+              data.tempatLahir || null,
+              data.tanggalLahir || null,
+              data.wnAsalNegara || null,
+              data.deskripsi || null,
+              data.alamat || null,
+              req.targetId
+            ]
+          );
         }
 
         // Complete the change request
-        await dbDtot.update(changeRequests).set({
-          status: 'APPROVED',
-          approverId: user.id as number,
-          processedAt: new Date()
-        }).where(eq(changeRequests.id, id));
+        await connectionDtot.execute(
+          'UPDATE change_requests SET status = ?, approver_id = ?, processed_at = NOW() WHERE id = ?',
+          ['APPROVED', user.id, id]
+        );
 
         return { success: true, message: 'Permintaan approval disetujui sepenuhnya.' };
       }
@@ -347,20 +360,21 @@ export const dtotRoutes = new Elysia({ prefix: '/dtot' })
   .post('/checks/dtot', async ({ body, user, set }) => {
     try {
       const { namaCadeb, nik, namaPasangan, nikPasangan, hasilPengecekan, hasilPep, kategori, keterangan, buktiSs } = body;
-      await dbDtot.insert(pengajuanDtot).values({
-        tanggal: new Date(),
-        namaCadeb,
-        nik,
-        namaPasangan: namaPasangan || '',
-        nikPasangan: nikPasangan || '',
-        hasilPengecekan: hasilPengecekan as any,
-        hasilPep,
-        kategori: kategori || 'Calon Debitur',
-        keterangan: keterangan || null,
-        buktiSs: buktiSs || null,
-        checkedBy: user.id as number,
-        checkedAt: new Date()
-      });
+      await connectionDtot.execute(
+        'INSERT INTO pengajuan_dtot (tanggal, nama_cadeb, nik, nama_pasangan, nik_pasangan, hasil_pengecekan, hasil_pep, kategori, keterangan, bukti_ss, checked_by, checked_at) VALUES (NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())',
+        [
+          namaCadeb,
+          nik,
+          namaPasangan || '',
+          nikPasangan || '',
+          hasilPengecekan,
+          hasilPep,
+          kategori || 'Calon Debitur',
+          keterangan || null,
+          buktiSs || null,
+          user.id
+        ]
+      );
       return { success: true, message: 'Hasil pengecekan DTTOT berhasil disimpan.' };
     } catch (e: any) {
       set.status = 500;
@@ -381,10 +395,16 @@ export const dtotRoutes = new Elysia({ prefix: '/dtot' })
   })
   .get('/checks/dtot', async () => {
     try {
-      const results = await dbDtot.select().from(pengajuanDtot).orderBy(desc(pengajuanDtot.createdAt)).limit(100);
+      const [rows] = await connectionDtot.execute(
+        'SELECT id, tanggal, nama_cadeb AS namaCadeb, nik, nama_pasangan AS namaPasangan, nik_pasangan AS nikPasangan, hasil_pengecekan AS hasilPengecekan, hasil_pep AS hasilPep, kategori, keterangan, bukti_ss AS buktiSs, checked_by AS checkedBy, checked_at AS checkedAt, created_at AS createdAt, updated_at AS updatedAt FROM pengajuan_dtot ORDER BY created_at DESC LIMIT 100'
+      );
+      const results = rows as any[];
       
       // Fetch users for join representation
-      const allUsers = await db.select({ id: users.id, namaLengkap: users.namaLengkap, username: users.username }).from(users);
+      const [userRows] = await connectionCadeb.execute(
+        'SELECT id, nama_lengkap AS namaLengkap, username FROM users'
+      );
+      const allUsers = userRows as any[];
       const userMap = new Map(allUsers.map(u => [u.id, u.namaLengkap || u.username]));
 
       const mapped = results.map(r => ({
@@ -400,17 +420,19 @@ export const dtotRoutes = new Elysia({ prefix: '/dtot' })
   .post('/checks/reksaloan', async ({ body, user, set }) => {
     try {
       const { noKontrak, namaDebitur, nik, hasilDtot, hasilPep, keterangan, buktiSs } = body;
-      await dbDtot.insert(cekReksaloan).values({
-        noKontrak,
-        namaDebitur: namaDebitur || null,
-        nik: nik || null,
-        hasilDtot: hasilDtot || null,
-        hasilPep: hasilPep || null,
-        keterangan: keterangan || null,
-        buktiSs: buktiSs || null,
-        checkedBy: user.id as number,
-        checkedAt: new Date()
-      });
+      await connectionDtot.execute(
+        'INSERT INTO cekreksaloan (no_kontrak, nama_debitur, nik, hasil_dtot, hasil_pep, keterangan, bukti_ss, checked_by, checked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())',
+        [
+          noKontrak,
+          namaDebitur || null,
+          nik || null,
+          hasilDtot || null,
+          hasilPep || null,
+          keterangan || null,
+          buktiSs || null,
+          user.id
+        ]
+      );
       return { success: true, message: 'Hasil verifikasi Reksaloan berhasil disimpan.' };
     } catch (e: any) {
       set.status = 500;
@@ -429,9 +451,15 @@ export const dtotRoutes = new Elysia({ prefix: '/dtot' })
   })
   .get('/checks/reksaloan', async () => {
     try {
-      const results = await dbDtot.select().from(cekReksaloan).orderBy(desc(cekReksaloan.checkedAt)).limit(100);
+      const [rows] = await connectionDtot.execute(
+        'SELECT id, no_kontrak AS noKontrak, nama_debitur AS namaDebitur, nik, hasil_dtot AS hasilDtot, hasil_pep AS hasilPep, keterangan, bukti_ss AS buktiSs, checked_by AS checkedBy, checked_at AS checkedAt FROM cekreksaloan ORDER BY checked_at DESC LIMIT 100'
+      );
+      const results = rows as any[];
       
-      const allUsers = await db.select({ id: users.id, namaLengkap: users.namaLengkap, username: users.username }).from(users);
+      const [userRows] = await connectionCadeb.execute(
+        'SELECT id, nama_lengkap AS namaLengkap, username FROM users'
+      );
+      const allUsers = userRows as any[];
       const userMap = new Map(allUsers.map(u => [u.id, u.namaLengkap || u.username]));
 
       const mapped = results.map(r => ({
@@ -443,4 +471,59 @@ export const dtotRoutes = new Elysia({ prefix: '/dtot' })
     } catch (e: any) {
       return { success: false, error: e.message };
     }
+  })
+  .get('/reksaloan-list', async ({ query }) => {
+    const { branch_id, q_nama, q_nik, q_kontrak } = query;
+    try {
+      const MOCK_AGREEMENTS = [
+        { nama: 'MIRA ARIANI alias UMM ZAHRA', ktp: '640201205820003', no_kontrak: 'CON-001', status: 'LIV', GoliveDate: '2026-05-10', cabang: 'Tenggarong', pekerjaan: 'Ibu Rumah Tangga' },
+        { nama: 'EDDY SANTOSO', ktp: '3172041506010002', no_kontrak: 'CON-002', status: 'LIV', GoliveDate: '2026-06-01', cabang: 'Jakarta Pusat', pekerjaan: 'Wiraswasta' },
+        { nama: 'ADE ARYANA RESTU SAPUTRI', ktp: '1371116305920012', no_kontrak: 'CON-003', status: 'LIV', GoliveDate: '2026-04-12', cabang: 'Palembang', pekerjaan: 'Pegawai Swasta' },
+        { nama: 'Candra Pradana', ktp: '1208110304930007', no_kontrak: 'CON-004', status: 'LIV', GoliveDate: '2026-03-15', cabang: 'Bandar Lampung', pekerjaan: 'Karyawan Swasta' },
+        { nama: 'Karlina Sofyarto', ktp: '1371115602920008', no_kontrak: 'CON-005', status: 'LIV', GoliveDate: '2026-04-20', cabang: 'Palembang', pekerjaan: 'Pegawai Negeri' },
+        { nama: 'Abubakar Swalleh', ktp: '9988776655443322', no_kontrak: 'CON-006', status: 'LIV', GoliveDate: '2026-01-18', cabang: 'Jakarta Selatan', pekerjaan: 'Professional' },
+        { nama: 'Citra Indah', ktp: '3173021908900004', no_kontrak: 'CON-007', status: 'LIV', GoliveDate: '2026-05-22', cabang: 'Bandung', pekerjaan: 'Wiraswasta' },
+        { nama: 'Ahmad Faisal', ktp: '3201081512880003', no_kontrak: 'CON-008', status: 'LIV', GoliveDate: '2026-06-05', cabang: 'Surabaya', pekerjaan: 'PNS' }
+      ];
+
+      let filtered = [...MOCK_AGREEMENTS];
+
+      if (q_nama) {
+        filtered = filtered.filter(a => a.nama.toLowerCase().includes(q_nama.toLowerCase()));
+      }
+      if (q_nik) {
+        filtered = filtered.filter(a => a.ktp.includes(q_nik));
+      }
+      if (q_kontrak) {
+        filtered = filtered.filter(a => a.no_kontrak.toLowerCase().includes(q_kontrak.toLowerCase()));
+      }
+
+      // Fetch actual check records from MySQL db
+      const contractNos = filtered.map(f => f.no_kontrak);
+      let checks: any[] = [];
+      if (contractNos.length > 0) {
+        const [rows] = await connectionDtot.execute(
+          'SELECT id, no_kontrak AS noKontrak, nama_debitur AS namaDebitur, nik, hasil_dtot AS hasilDtot, hasil_pep AS hasilPep, keterangan, bukti_ss AS buktiSs, checked_by AS checkedBy, checked_at AS checkedAt FROM cekreksaloan'
+        );
+        checks = rows as any[];
+      }
+
+      const checkMap = new Map(checks.map(c => [c.noKontrak, c]));
+
+      const results = filtered.map(f => ({
+        ...f,
+        last_check: checkMap.get(f.no_kontrak) || null
+      }));
+
+      return { success: true, data: results };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  }, {
+    query: t.Object({
+      branch_id: t.Optional(t.String()),
+      q_nama: t.Optional(t.String()),
+      q_nik: t.Optional(t.String()),
+      q_kontrak: t.Optional(t.String())
+    })
   });
