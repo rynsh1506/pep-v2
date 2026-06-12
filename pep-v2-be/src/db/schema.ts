@@ -1,4 +1,4 @@
-import { mysqlTable, int, varchar, timestamp, mysqlEnum, text, datetime, longtext } from 'drizzle-orm/mysql-core';
+import { mysqlTable, int, varchar, timestamp, mysqlEnum, text, datetime, longtext, date } from 'drizzle-orm/mysql-core';
 
 // ==========================================
 // CADEB_DB SCHEMA
@@ -76,4 +76,31 @@ export const cekReksaloan = mysqlTable('cekreksaloan', {
   buktiSs: varchar('bukti_ss', { length: 255 }),
   checkedBy: int('checked_by'),
   checkedAt: timestamp('checked_at').defaultNow(),
+});
+
+export const terduga = mysqlTable('terduga', {
+  id: int('id').primaryKey().autoincrement(),
+  nama: varchar('nama', { length: 255 }).notNull(),
+  terdugaType: mysqlEnum('terduga_type', ['Orang', 'Korporasi', 'Tidak Terduga']).notNull(),
+  kodeDensus: varchar('kode_densus', { length: 50 }),
+  tempatLahir: varchar('tempat_lahir', { length: 255 }),
+  tanggalLahir: date('tanggal_lahir'),
+  wnAsalNegara: varchar('wn_asal_negara', { length: 100 }),
+  deskripsi: text('deskripsi'),
+  alamat: text('alamat'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  deletedAt: datetime('deleted_at'),
+  isPending: int('is_pending').default(0),
+});
+
+export const changeRequests = mysqlTable('change_requests', {
+  id: int('id').primaryKey().autoincrement(),
+  targetId: int('target_id'),
+  requestType: mysqlEnum('request_type', ['ADD', 'EDIT', 'DELETE']).notNull(),
+  dataJson: text('data_json').notNull(),
+  requesterId: int('requester_id').notNull(),
+  status: mysqlEnum('status', ['PENDING_SPV', 'PENDING_MANAGER', 'APPROVED', 'REJECTED']).default('PENDING_SPV'),
+  approverId: int('approver_id'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  processedAt: datetime('processed_at'),
 });

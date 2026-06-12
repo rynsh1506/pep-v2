@@ -4,6 +4,7 @@ import { authRoutes } from './routes/auth';
 import { candidateRoutes } from './routes/candidates';
 import { approvalRoutes } from './routes/approvals';
 import { scraperRoutes } from './routes/scraper';
+import { dtotRoutes } from './routes/dtot';
 import { logger } from './utils/logger';
 
 const app = new Elysia()
@@ -23,6 +24,7 @@ const app = new Elysia()
       .use(candidateRoutes)
       .use(approvalRoutes)
       .use(scraperRoutes)
+      .use(dtotRoutes)
   );
 
 const port = process.env.PORT || 3000;
