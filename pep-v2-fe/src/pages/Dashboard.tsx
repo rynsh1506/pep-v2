@@ -468,6 +468,14 @@ export const Dashboard: React.FC = () => {
         if (scraperRes.data.success) {
           scraperMatches = scraperRes.data.data?.data || [];
           scraperInfo = scraperRes.data.data?.pesan_sistem || 'OK';
+
+          if (scraperMatches.length > 0) {
+            const firstRow = scraperMatches[0];
+            const namaPpatk = firstRow['Nama'] || firstRow['Nama Lengkap'] || firstRow['NAMA'];
+            if (namaPpatk && namaPpatk !== 'Tidak Diketahui') {
+              setScreeningForm(prev => ({ ...prev, nama: namaPpatk }));
+            }
+          }
         }
       } catch (err: any) {
         scraperInfo = err.response?.data?.error || 'PPATK connection timeout';
