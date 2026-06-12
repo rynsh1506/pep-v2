@@ -1,0 +1,16 @@
+buatkan issue.md yang berisi perencanaan untuk nanti di implementasikan oleh junior programmer atau model ai yang lebih murah 
+
+isi dari planing nya sebagai berikut:
+
+coba liat structure project ini secara keseluruhan saya mau migrasi ini menggunakan react untuk fe nya be nya kita pake node aja sekaliang 
+tapi kamu buat folder baru pep-v2-be dan fe yah biar kamu tetep bisa liat project lama nya bentuk nya seperti apa
+
+project nya saya mau menggunakan node js
+1. react
+2. typescript
+3. database nya ambil aja dari yang udah ada setup nya sama klo kamu liat ini ada ke sql server nya juga tapi nanti dulu aja inti nya 2 database ini ada cadep_db.sql dan db_dtot.sql
+4. pake dokcer dan bun dan pake elesia js structur nya wajib mengikuti best praktis agar mentainable
+5. untuk tampilan pake tailwind dan responsif 
+6. login juga jwt boleh atau bikin token sendiri juga oke pake uuid
+
+tolong jelaskan dengan sangat detail tahapan - tahapan yang harus di lakukan untuk mengimplementasikan fitur ini anggap yang implementasi adalah juior programmer atau model AI yang lebih murah

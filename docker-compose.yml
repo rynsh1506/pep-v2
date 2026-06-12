@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: pep-v2-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./pep_test/cadeb_db (1).sql:/tmp/cadeb_db.sql
+      - ./pep_test/db_dtot (1).sql:/tmp/db_dtot.sql
+      - ./db-init.sh:/docker-entrypoint-initdb.d/db-init.sh
+    networks:
+      - pep-network
+
+  backend:
+    build:
+      context: ./pep-v2-be
+      dockerfile: Dockerfile
+    container_name: pep-v2-backend
+    restart: always
+    environment:
+      PORT: 3000
+      NODE_ENV: development
+      DATABASE_URL: mysql://root:rootpassword@mysql:3306/cadeb_db
+      DB_DTOT_URL: mysql://root:rootpassword@mysql:3306/db_dtot
+      JWT_SECRET: supersecretjwtkeychangeinprod
+    ports:
+      - "3000:3000"
+    depends_on:
+      - mysql
+    networks:
+      - pep-network
+
+  frontend:
+    build:
+      context: ./pep-v2-fe
+      dockerfile: Dockerfile
+    container_name: pep-v2-frontend
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - pep-network
+
+networks:
+  pep-network:
+    driver: bridge
