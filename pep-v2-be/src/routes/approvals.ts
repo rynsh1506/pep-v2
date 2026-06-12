@@ -4,7 +4,7 @@ import { approvalRequests, candidates, users } from '../db/schema';
 import { eq, and, sql, desc } from 'drizzle-orm';
 import { jwt } from '@elysiajs/jwt';
 
-const authPlugin = new Elysia()
+export const approvalRoutes = new Elysia({ prefix: '/approvals' })
   .use(
     jwt({
       name: 'jwt',
@@ -23,11 +23,8 @@ const authPlugin = new Elysia()
       set.status = 401;
       return { user: null };
     }
-    return { user };
-  });
-
-export const approvalRoutes = new Elysia({ prefix: '/approvals' })
-  .use(authPlugin)
+    return { user: user as any };
+  })
   .onBeforeHandle(({ user, set }) => {
     if (!user || user.level < 2) {
       set.status = 403;
@@ -152,7 +149,7 @@ export const approvalRoutes = new Elysia({ prefix: '/approvals' })
     }
   }, {
     body: t.Object({
-      action: mysqlEnum('action', ['APPROVE', 'REJECT']),
+      action: t.Union([t.Literal('APPROVE'), t.Literal('REJECT')]),
       notes: t.Optional(t.String()),
     })
   });

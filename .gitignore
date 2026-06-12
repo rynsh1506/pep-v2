@@ -1,2 +1,13 @@
 login_ppatk/
 pep_test/
+**/node_modules/
+node_modules/
+**/package-lock.json
+package-lock.json
+**/dist/
+dist/
+.env
+**/.env
+.env.local
+**/bun.lockb
+bun.lockb

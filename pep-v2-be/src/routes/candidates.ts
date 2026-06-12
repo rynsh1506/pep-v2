@@ -4,8 +4,7 @@ import { candidates, approvalRequests, users } from '../db/schema';
 import { eq, like, and, sql, desc } from 'drizzle-orm';
 import { jwt } from '@elysiajs/jwt';
 
-// Helper middleware for JWT validation
-const authPlugin = new Elysia()
+export const candidateRoutes = new Elysia({ prefix: '/candidates' })
   .use(
     jwt({
       name: 'jwt',
@@ -24,11 +23,8 @@ const authPlugin = new Elysia()
       set.status = 401;
       return { user: null };
     }
-    return { user };
-  });
-
-export const candidateRoutes = new Elysia({ prefix: '/candidates' })
-  .use(authPlugin)
+    return { user: user as any };
+  })
   .onBeforeHandle(({ user, set }) => {
     if (!user) {
       set.status = 401;

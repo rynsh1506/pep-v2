@@ -206,6 +206,16 @@ export const Dashboard: React.FC = () => {
           </div>
         )}
 
+        {/* Error Info */}
+        {error && (
+          <div className="bg-red-500/10 border border-red-500/30 p-3 rounded-lg text-sm text-red-200 flex justify-between items-center">
+            <span>⚠️ {error}</span>
+            <button onClick={() => setError(null)} className="text-red-400 hover:text-red-200">
+              <X size={16} />
+            </button>
+          </div>
+        )}
+
         {/* Filters & Actions */}
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 bg-slate-900 p-5 rounded-xl border border-slate-800 shadow-lg">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 flex-1">

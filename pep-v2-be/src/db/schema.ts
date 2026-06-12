@@ -75,5 +75,5 @@ export const cekReksaloan = mysqlTable('cekreksaloan', {
   keterangan: text('keterangan'),
   buktiSs: varchar('bukti_ss', { length: 255 }),
   checkedBy: int('checked_by'),
-  checkedAt: datetime('checked_at').defaultNow(),
+  checkedAt: timestamp('checked_at').defaultNow(),
 });
