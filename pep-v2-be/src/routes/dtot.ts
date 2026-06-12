@@ -51,7 +51,7 @@ export const dtotRoutes = new Elysia({ prefix: '/dtot' })
       }
       queryStr += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
 
-      const [rows] = await connectionDtot.execute(queryStr, [...values, Number(limit), offset]);
+      const [rows] = await connectionDtot.query(queryStr, [...values, Number(limit), offset]);
       const results = rows as any[];
 
       // Fetch count for pagination
