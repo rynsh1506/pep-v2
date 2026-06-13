@@ -1,0 +1,26 @@
+{
+  "name": "pep-v2-be",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts",
+    "db:push": "bunx drizzle-kit push"
+  },
+  "dependencies": {
+    "@elysiajs/cors": "^1.2.0",
+    "@elysiajs/jwt": "^1.2.0",
+    "axios": "^1.6.8",
+    "cheerio": "^1.0.0-rc.12",
+    "dotenv": "^16.4.5",
+    "drizzle-orm": "^0.30.10",
+    "elysia": "^1.2.0",
+    "mysql2": "^3.9.7",
+    "playwright": "^1.43.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.7",
+    "bun-types": "^1.1.0",
+    "drizzle-kit": "^0.21.4",
+    "typescript": "^5.4.5"
+  }
+}
